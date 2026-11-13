@@ -23,7 +23,7 @@ class PageError(Exception):
         self.reason = reason
 
 
-# Remove the "#fragment" part of a URL.
+# Remove the #fragment part of a URL.
 def defragment(url: str) -> str:
     return urldefrag(url).url
 
