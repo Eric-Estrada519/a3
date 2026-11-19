@@ -8,8 +8,10 @@ from bs4 import BeautifulSoup, Comment, NavigableString, XMLParsedAsHTMLWarning
 
 from tokenizer import tokenize
 
-# Text inside these tags counts toward important_tf.
-IMPORTANT_TAGS = frozenset({"title", "h1", "h2", "h3", "b", "strong"})
+# Important text is split into three kinds so search can weight each one differently.
+TITLE_TAGS = frozenset({"title"})
+HEADING_TAGS = frozenset({"h1", "h2", "h3"})
+BOLD_TAGS = frozenset({"b", "strong"})
 
 # These tags hold code, not page text, so they are deleted first.
 REMOVED_TAGS = ("script", "style", "noscript")
@@ -76,10 +78,29 @@ def load_page(path) -> tuple[str, str]:
     return url, content
 
 
-# Return {term: (tf, important_tf)} for one page. Each text node is tokenized on its
-# own (so neighboring tags never merge) and counts as important if any ancestor is an
-# important tag so nested tags count once and important_tf never exceeds tf.
-def extract_term_counts(html: str) -> dict[str, tuple[int, int]]:
+# Say which kind of text a text node is: "title", "heading", "bold", or None for body
+# text. If it sits inside several kinds (like <h1><b>x</b></h1>), the strongest wins:
+# title, then heading, then bold. So each word is counted in at most one kind.
+def _text_kind(node) -> str | None:
+    parent_names = {parent.name for parent in node.parents}
+    if parent_names & TITLE_TAGS:
+        return "title"
+    if parent_names & HEADING_TAGS:
+        return "heading"
+    if parent_names & BOLD_TAGS:
+        return "bold"
+    return None
+
+
+# Position of each kind's count in a page's (tf, title_tf, heading_tf, bold_tf) tuple.
+_KIND_SLOT = {"title": 1, "heading": 2, "bold": 3}
+
+
+# Return {term: (tf, title_tf, heading_tf, bold_tf)} for one page. tf counts every
+# occurrence. The other three count only occurrences inside that kind of tag, so
+# title_tf + heading_tf + bold_tf never exceeds tf. Each text node is tokenized on its
+# own so words in neighboring tags never merge.
+def extract_term_counts(html: str) -> dict[str, tuple[int, int, int, int]]:
     try:
         # RSS/XML pages parse fine as HTML. Hides bs4's warning about them.
         with warnings.catch_warnings():
@@ -95,7 +116,7 @@ def extract_term_counts(html: str) -> dict[str, tuple[int, int]]:
     for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
         comment.extract()
 
-    counts: dict[str, list[int]] = {}
+    counts: dict[str, list[int]] = {}  # term -> [tf, title_tf, heading_tf, bold_tf]
     for node in soup.find_all(string=True):
         # Only plain text nodes.
         if type(node) is not NavigableString:
@@ -103,11 +124,11 @@ def extract_term_counts(html: str) -> dict[str, tuple[int, int]]:
         tokens = tokenize(str(node))
         if not tokens:
             continue
-        important = any(parent.name in IMPORTANT_TAGS for parent in node.parents)
+        kind = _text_kind(node)
         for token in tokens:
-            entry = counts.setdefault(token, [0, 0])
+            entry = counts.setdefault(token, [0, 0, 0, 0])
             entry[0] += 1
-            if important:
-                entry[1] += 1
+            if kind:
+                entry[_KIND_SLOT[kind]] += 1
 
-    return {term: (tf, important_tf) for term, (tf, important_tf) in counts.items()}
+    return {term: tuple(entry) for term, entry in counts.items()}
