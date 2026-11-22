@@ -1,0 +1,28 @@
+# Test queries for Milestone 3. Format: TAG | query | why it got this tag
+# Tags come from the baseline run (Milestone 2 ranking) before any Milestone 3 change.
+# GOOD = the top results are what a person would expect. BAD = they are not.
+GOOD | cristina lopes | her faculty profile is #1, the rest are news about her
+GOOD | ACM | all top 5 are news about ACM awards and fellows
+GOOD | master of software engineering | the MSWE program page is #1
+GOOD | artificial intelligence | top results are AI articles
+GOOD | mswe | acronym finds the MSWE program page first
+GOOD | database systems | the www-db research pages come first
+GOOD | security | all top 5 are security research news
+GOOD | ramesh jain | interview with Prof. Jain is #1
+GOOD | asterix | rare word, the only matching page is returned
+GOOD | information retrieval | the MARS retrieval project pages come first
+GOOD | running | stemming matches run/running/runs
+GOOD | internship | student profiles describing internships
+BAD | machine learning | #1 is the cs news listing page, 2 more news/page/N lists in the top 5
+BAD | phd program | monthly archive pages (2017/12, news/page/22) are #1 and #2
+BAD | how to apply | only news archives and spotlights, no admissions page
+BAD | to be or not to be | only common words, results are archives and a book list
+BAD | the university of california irvine | common words, news archive pages win
+BAD | faculty | word is on every page, scores near 0, faculty directory not #1
+BAD | privacy | word is in every page footer, results are arbitrary
+BAD | contact us | a random news article beats the contact page
+BAD | computer science | in 1191 of 1212 pages, the CS home page is only #2
+BAD | ics 31 | course page is #1 but #2 to #5 are monthly archives
+BAD | graduate admissions | the site map beats the graduate application page
+BAD | game design | a news archive page is #2, above the game design articles
+BAD | human computer interaction | a news archive page is #2

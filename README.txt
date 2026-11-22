@@ -19,8 +19,6 @@ WHAT IS IN THIS ZIP
   evaluate.py       runs every test query in queries.txt and logs the top 5 results
   queries.txt       the test queries (see TEST.txt for the explanation)
   report.py         writes the Milestone 1 analytics report (optional)
-  report_m2.py      writes the Milestone 2 query report (optional)
-  tests/            pytest unit tests (optional)
   requirements.txt  Python packages needed
 
 
@@ -102,7 +100,3 @@ query words are ranked first, then by score.
 
 Runs all queries in queries.txt and writes the top 5 results and the time of
 each query to eval_log.txt.
-
-Unit tests:
-
-    python -m pytest
