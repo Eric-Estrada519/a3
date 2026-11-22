@@ -1,0 +1,165 @@
+TEST QUERIES - Assignment 3
+===========================
+
+These are the 25 queries used to evaluate the search engine. The same list, in
+machine-readable form, is in queries.txt; "python evaluate.py" runs all of them
+and logs the top 5 results and the time of each query.
+
+Each query was first run on the Milestone 2 ranking (the baseline) and tagged
+GOOD if the top results were what a person would expect, or POOR if they were
+not. The changes made afterwards, and their effect on each query, are below.
+
+
+PART 1 - QUERIES THAT DID WELL FROM THE START
+---------------------------------------------
+
+  1. cristina lopes                  her faculty profile is #1, the rest is news about her
+  2. ACM                             all top 5 are news about ACM awards and fellows
+  3. master of software engineering  the MSWE program page is #1
+  4. artificial intelligence         top results are AI articles
+  5. mswe                            the acronym finds the MSWE program page first
+  6. database systems                the database research group pages come first
+  7. security                        all top 5 are security research news
+  8. ramesh jain                     an interview with Prof. Jain is #1
+  9. asterix                         rare word; the only matching page is returned
+ 10. information retrieval           the MARS retrieval project pages come first
+ 11. running                         stemming matches run / running / runs
+ 12. internship                      student profiles that describe internships
+
+These stayed good after the changes below, with one small side effect: for
+"running", two news listing pages moved into #3-#5 after change 1. The top two
+results are still the right ones.
+
+
+PART 2 - QUERIES THAT STARTED BY DOING POORLY
+---------------------------------------------
+
+ 13. machine learning
+ 14. phd program
+ 15. how to apply
+ 16. to be or not to be
+ 17. the university of california irvine
+ 18. faculty
+ 19. privacy
+ 20. contact us
+ 21. computer science
+ 22. ics 31
+ 23. graduate admissions
+ 24. game design
+ 25. human computer interaction
+
+The problems with the baseline fell into three groups:
+
+  a) News archive and listing pages (for example /2017/08/ or /news/page/22/)
+     ranked above real pages. These pages are very long and contain many
+     different words, so they match almost any query and collect a lot of score.
+     Affected: machine learning, phd program, the university of california
+     irvine, ics 31, game design, human computer interaction.
+
+  b) All "important" text (title, headings, bold) shared one weight, so a word
+     in a page's title counted no more than a bold word in its body.
+     Affected: contact us, computer science, graduate admissions.
+
+  c) Words that appear on almost every page (faculty, privacy, computer science)
+     have an idf near 0, so their scores were near 0 and the order of the
+     results was close to arbitrary.
+     Affected: faculty, privacy, computer science, graduate admissions.
+
+
+PART 3 - WHAT WAS CHANGED TO MAKE THEM BETTER
+---------------------------------------------
+
+CHANGE 1: Separate weights for title, headings and bold text
+
+  Before, each posting stored one "important_tf". Now the index stores three
+  separate counts: title_tf, heading_tf (h1-h3) and bold_tf (b, strong). A word
+  inside several of these counts once, as the strongest kind
+  (title > heading > bold). A term's weight in a page is now
+
+      (1 + log tf) + 3 * (1 + log title_tf) + 2 * (1 + log heading_tf)
+                   + 1.5 * (1 + log bold_tf)
+
+  (a kind with a count of 0 adds nothing), multiplied by idf.
+
+  Why: a page's title is a much better summary of the page than a bold word
+  in its body. This is a general rule, not tuned to any one query.
+
+  Helped:
+    - machine learning: the news listing pages left the top 5; all top 5 are
+      now articles about machine learning.
+    - privacy, faculty: pages that have the word in their title (pages ABOUT
+      the topic) now beat pages that only have it in the footer. This also
+      fixes problem (c) for these words: even with a tiny idf, the title bonus
+      separates the relevant pages from the rest.
+    - contact us: the contact page is now #1.
+    - computer science: the CS home page went from #2 to #1.
+    - game design, human computer interaction: the archive pages are gone from
+      the top 5.
+  Hurt:
+    - ics 31: the course list fell from #1 to #2.
+    - graduate admissions: the application page fell from #2 to #3.
+    - running: see Part 1.
+  Cost: index.json grew from 13.8 MB to 21.9 MB; loading it takes about 0.05 s
+  longer.
+
+CHANGE 2: Length normalization
+
+  A page's score is now divided by (its vector length) ** 0.5, where the vector
+  length is sqrt(sum of the squared weights of all its terms). The lengths are
+  computed once when the search engine starts, never during a query.
+
+  Why: problem (a). Long pages match more queries and collect more score just
+  because they contain more words.
+
+  Full cosine normalization (dividing by the whole length, power 1.0) was tried
+  first. It removed the archive pages but also pushed useful long pages down:
+  the CS home page fell from #1 to #4 for "computer science" and the course
+  list left the top 5 for "ics 31". The square root (power 0.5) keeps most of
+  the gains with much less damage, so that is what is used.
+
+  Helped:
+    - the university of california irvine: the two archive pages at #2-#3 are
+      gone (one archive page remains at #5).
+    - faculty: the faculty profiles directory is now #3; it was not in the top
+      5 before.
+    - mswe: the graduate overview page replaced a news listing page.
+  Hurt:
+    - computer science: the CS home page moved from #1 to #2, behind the
+      graduate CS programs page (still a reasonable answer).
+    - ics 31: the course list moved from #2 to #3.
+    - graduate admissions: the application page moved from #3 to #4.
+
+CHANGE 3: Speed
+
+  The top k results are now picked with a heap (heapq.nsmallest) instead of
+  sorting every matching page. The slowest of the 25 test queries now takes
+  about 4 ms, well under the limit.
+
+
+PART 4 - CURRENT STATUS OF THE POOR QUERIES
+-------------------------------------------
+
+  Fixed:
+    machine learning, privacy, contact us, game design,
+    human computer interaction
+
+  Mostly fixed:
+    computer science, faculty, the university of california irvine
+
+  Not fixed, and why:
+    - phd program: the program pages write "Ph.D.", which the tokenizer splits
+      into "ph" and "d". The word "phd" only appears in their URLs, which are
+      not indexed. The #1 result is now a relevant article, but #2-#5 are
+      still archive pages.
+    - how to apply: "apply" stems to "appli" (which also matches "applied"),
+      while the admissions pages say "application", which stems to "applic".
+      So the query never matches the pages it should find.
+    - ics 31: archive pages contain "ICS" and "31" far apart from each other.
+      Fixing this needs word positions or 2-grams (matching "ics 31" as a
+      phrase), which the index does not store.
+    - graduate admissions: slightly worse than the baseline (the application
+      page moved from #2 to #4). Both words appear on almost every page
+      (1,152 of 1,212 pages contain both), so both have an idf near 0 and the
+      scores of the top pages are very close together.
+    - to be or not to be: every word is a very common word, so no page is a
+      real answer. The results are arbitrary, but the query is still fast.
