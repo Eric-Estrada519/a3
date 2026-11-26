@@ -6,8 +6,9 @@ machine-readable form, is in queries.txt; "python evaluate.py" runs all of them
 and logs the top 5 results and the time of each query.
 
 Each query was first run on the Milestone 2 ranking (the baseline) and tagged
-GOOD if the top results were what a person would expect, or POOR if they were
-not. The changes made afterwards, and their effect on each query, are below.
+GOOD if the top results were what a person would expect, or BAD if they were
+not (the same tags are used in queries.txt and the evaluate.py log). The
+changes made afterwards, and their effect on each query, are below.
 
 
 PART 1 - QUERIES THAT DID WELL FROM THE START
@@ -26,9 +27,14 @@ PART 1 - QUERIES THAT DID WELL FROM THE START
  11. running                         stemming matches run / running / runs
  12. internship                      student profiles that describe internships
 
-These stayed good after the changes below, with one small side effect: for
-"running", two news listing pages moved into #3-#5 after change 1. The top two
-results are still the right ones.
+These stayed good after the changes below: the #1 result of every query is
+still the right page. There are small side effects lower in the top 5:
+  - running: three news listing pages (/news/, /2019/10/ and the footer news
+    page) are at #3-#5. The top two results are still the right ones.
+  - cristina lopes: the monthly archive /2017/10/ is at #5.
+  - mswe: the monthly archive /2019/09/ is at #5.
+Listing and archive pages hold many short news stories, so they still reach
+the bottom of the top 5 for some queries even after change 2.
 
 
 PART 2 - QUERIES THAT STARTED BY DOING POORLY
@@ -119,7 +125,8 @@ CHANGE 2: Length normalization
 
   Helped:
     - the university of california irvine: the two archive pages at #2-#3 are
-      gone (one archive page remains at #5).
+      gone (one archive page remained at #5; it is no longer in the top 5
+      after all the changes).
     - faculty: the faculty profiles directory is now #3; it was not in the top
       5 before.
     - mswe: the graduate overview page replaced a news listing page.
@@ -136,30 +143,142 @@ CHANGE 3: Speed
   about 4 ms, well under the limit.
 
 
-PART 4 - CURRENT STATUS OF THE POOR QUERIES
--------------------------------------------
+CHANGE 4: Dotted abbreviations (Ph.D. -> phd)
+
+  When groups of one or two letters are joined by periods (Ph.D., U.S., U.S.A.),
+  the tokenizer keeps the separate pieces ("ph", "d") and also adds the joined
+  word ("phd"). Groups longer than two letters (www.ics.uci.edu) and numbers
+  (3.14) are not joined. The same tokenizer is used for queries.
+
+  Why: pages write "Ph.D." but people type "phd", so the query never matched the
+  PhD program pages. The pieces are kept so every alphanumeric sequence is still
+  a token, as the assignment requires.
+
+  Helped:
+    - phd program: the Ph.D. in Informatics and Ph.D. in Software Engineering
+      pages are now #1 and #2 (they were not in the top 5).
+  Side effect:
+    - contact us: "U.S." now also gives "us". The contact page is still #1, but
+      #2-#5 are now articles about U.S. News rankings.
+
+CHANGE 5: Word pairs (2-grams)
+
+  The indexer also saves every pair of neighboring words on each page, in a
+  second file (ngrams.json). When a query has two or more words, each pair of
+  neighboring query words is looked up, and pages that contain the same pair
+  get a bonus: idf of the pair * (1 + log tf of the pair) / page length.
+
+  Why: plain tf-idf treats a page as a bag of words and ignores word order. A
+  news archive page with "ICS" in one story and "31" in another scored like the
+  course list that says "ICS 31". Pages that have the query's words side by
+  side are much more likely to be about the query.
+
+  Word pairs that appear on more than 25% of all pages get no bonus. These are
+  menu and footer text: "Graduate Admissions" is a link in the CS site menu on
+  31% of pages. Without this rule, very short pages that only carry the menu
+  took #1 for "graduate admissions".
+
+  Helped:
+    - ics 31: the course list is now #1 and the profile of the professor who
+      teaches ICS 31 is #2. Before, a news archive page was #1.
+    - how to apply: the undergraduate application page contains "how to" and
+      "to apply" side by side, and is now #1. Before, every top-5 result was
+      an archive page or an article about "applied" research.
+    - phd program: the program pages contain the pair "phd program", which
+      keeps them at #1 and #2 together with change 4.
+  Cost: ngrams.json is 18.4 MB, and loading the index takes about 0.5 s
+  longer when the search starts.
+
+CHANGE 6: Anchor text
+
+  The words of each link (the text between <a href="..."> and </a>) are added
+  to the page the link points to, as a separate count (anchor_tf, weight 2).
+  Links to pages outside the dataset, and links from a page to itself, are
+  ignored.
+
+  Why: the words other pages use to link to a page describe that page well.
+  Many pages link to the faculty directory with the word "Faculty", even though
+  the directory itself does not repeat the word often.
+
+  (The effect below was checked by running the queries again with the anchor
+  text weight set to 0.)
+  Helped:
+    - faculty: the faculty directory is now #1 (it was #3), and the CS faculty
+      page entered the top 5 at #4.
+    - human computer interaction: the MHCID program page moved from #2 to #1.
+  Hurt:
+    - computer science: the CS home page moved from #2 to #4, behind the two
+      BS degree pages for Information and Computer Science and Computer Game
+      Science (still reasonable answers).
+    - how to apply: the "Applied Innovation" article moved up to #2 (the
+      application page stays #1).
+
+CHANGE 7: Removing exact duplicate pages
+
+  For each page, a hash (SHA-256) of all its words in order is computed. If a
+  later page has the same hash, it is skipped and listed in skipped.json as
+  "duplicate content". Links to the skipped copy's URL count for the kept page.
+
+  Why: the same page sometimes exists under two URLs (for example /mars/ and
+  /mars/index.shtml), and both copies took places in the top 5.
+
+  Result: 37 pages were removed (1,212 -> 1,175 indexed pages). For
+  "information retrieval" the second copy of the MARS page left the top 5.
+
+CHANGE 8: Three-word phrases (3-grams)
+
+  ngrams.json now also holds every run of three neighboring words on each page.
+  When a query has three or more words, each run of three neighboring query
+  words is looked up, and pages that contain the same three words in the same
+  order get the same kind of bonus as a word pair in change 5. The 25% rule
+  from change 5 applies to 3-grams too.
+
+  Why: word pairs only check two words at a time. A page that says "how to"
+  in one sentence and "to apply" in another got the same bonus as a page that
+  says "how to apply". A 3-gram only matches when the whole phrase is there.
+
+  Helped:
+    - how to apply: the graduate application page entered the top 5 at #4.
+      The "Applied Innovation" article and a news listing page (/news/page/19/)
+      left the top 5. The undergraduate application page stays #1.
+    - On other long queries tried during testing (for example "neural network
+      deep learning classification"), news listing pages left the top 5.
+  Hurt:
+    - None. The other 24 queries have exactly the same top 5 as before.
+  Cost: ngrams.json grew from 18.4 MB to 42.3 MB, and loading the index at
+  startup takes about 3 s instead of 1.5 s. The slowest query still takes
+  under 5 ms.
+
+
+PART 4 - CURRENT STATUS OF THE BAD QUERIES
+------------------------------------------
 
   Fixed:
     machine learning, privacy, contact us, game design,
-    human computer interaction
+    human computer interaction, phd program (change 4),
+    faculty (change 6), how to apply (changes 5 and 8)
 
   Mostly fixed:
-    computer science, faculty, the university of california irvine
+    computer science, the university of california irvine,
+    graduate admissions (change 5),
+    ics 31 (change 5: the right pages are #1 and #2, but #3-#5 are still
+    news listing and archive pages)
 
   Not fixed, and why:
-    - phd program: the program pages write "Ph.D.", which the tokenizer splits
-      into "ph" and "d". The word "phd" only appears in their URLs, which are
-      not indexed. The #1 result is now a relevant article, but #2-#5 are
-      still archive pages.
-    - how to apply: "apply" stems to "appli" (which also matches "applied"),
-      while the admissions pages say "application", which stems to "applic".
-      So the query never matches the pages it should find.
-    - ics 31: archive pages contain "ICS" and "31" far apart from each other.
-      Fixing this needs word positions or 2-grams (matching "ics 31" as a
-      phrase), which the index does not store.
-    - graduate admissions: slightly worse than the baseline (the application
-      page moved from #2 to #4). Both words appear on almost every page
-      (1,152 of 1,212 pages contain both), so both have an idf near 0 and the
-      scores of the top pages are very close together.
     - to be or not to be: every word is a very common word, so no page is a
       real answer. The results are arbitrary, but the query is still fast.
+
+  Earlier notes on the queries fixed by changes 4-8:
+    - phd program: pages write "Ph.D.", which used to give only "ph" and "d".
+      Fixed by change 4.
+    - how to apply: "apply" also matches "applied", and most admissions pages
+      say "application" ("applic"). Fixed by change 5: the undergraduate
+      application page has "how to" and "to apply" side by side, and pages
+      with those pairs get the bonus. Change 8 (3-grams) then pushed out the
+      "Applied Innovation" article and moved the graduate application page
+      into the top 5.
+    - ics 31: needed word order. Mostly fixed by change 5 (see above).
+    - graduate admissions: both words are on almost every page (site menu), so
+      their idf is near 0. Change 5 alone made it worse (menu pages won);
+      ignoring pairs on more than 25% of pages fixed that. The CS graduate
+      page is #1 and the graduate application page #3.
