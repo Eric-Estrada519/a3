@@ -1,12 +1,14 @@
 """Load crawled JSON pages and turn their HTML into per-term counts."""
+import hashlib
 import json
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urldefrag
+from urllib.parse import urldefrag, urljoin
 
 from bs4 import BeautifulSoup, Comment, NavigableString, XMLParsedAsHTMLWarning
 
-from tokenizer import tokenize
+from tokenizer import NGRAM_SIZES, ngrams, tokenize
 
 # Important text is split into three kinds so search can weight each one differently.
 TITLE_TAGS = frozenset({"title"})
@@ -96,11 +98,25 @@ def _text_kind(node) -> str | None:
 _KIND_SLOT = {"title": 1, "heading": 2, "bold": 3}
 
 
-# Return {term: (tf, title_tf, heading_tf, bold_tf)} for one page. tf counts every
-# occurrence. The other three count only occurrences inside that kind of tag, so
-# title_tf + heading_tf + bold_tf never exceeds tf. Each text node is tokenized on its
-# own so words in neighboring tags never merge.
+# Everything the indexer needs from one page.
+@dataclass
+class ParsedPage:
+    counts: dict[str, tuple[int, int, int, int]]  # term -> (tf, title_tf, heading_tf, bold_tf)
+    ngram_counts: dict[str, int]                 # 2- or 3-word phrase -> times it appears
+    links: list[tuple[str, list[str]]]            # (target URL, anchor text tokens)
+    fingerprint: str                              # hash of the page's words, for duplicates
+
+
+# Return just {term: (tf, title_tf, heading_tf, bold_tf)} for one page.
 def extract_term_counts(html: str) -> dict[str, tuple[int, int, int, int]]:
+    return parse_page(html, "").counts
+
+
+# Parse one page (its URL is needed to resolve relative links). tf counts every
+# occurrence. title_tf, heading_tf and bold_tf count only occurrences inside that kind
+# of tag, so together they never exceed tf. Each text node is tokenized on its own so
+# words in neighboring tags never merge into one word.
+def parse_page(html: str, page_url: str) -> ParsedPage:
     try:
         # RSS/XML pages parse fine as HTML. Hides bs4's warning about them.
         with warnings.catch_warnings():
@@ -117,6 +133,7 @@ def extract_term_counts(html: str) -> dict[str, tuple[int, int, int, int]]:
         comment.extract()
 
     counts: dict[str, list[int]] = {}  # term -> [tf, title_tf, heading_tf, bold_tf]
+    page_tokens: list[str] = []        # every token of the page, in order
     for node in soup.find_all(string=True):
         # Only plain text nodes.
         if type(node) is not NavigableString:
@@ -124,6 +141,7 @@ def extract_term_counts(html: str) -> dict[str, tuple[int, int, int, int]]:
         tokens = tokenize(str(node))
         if not tokens:
             continue
+        page_tokens += tokens
         kind = _text_kind(node)
         for token in tokens:
             entry = counts.setdefault(token, [0, 0, 0, 0])
@@ -131,4 +149,36 @@ def extract_term_counts(html: str) -> dict[str, tuple[int, int, int, int]]:
             if kind:
                 entry[_KIND_SLOT[kind]] += 1
 
-    return {term: tuple(entry) for term, entry in counts.items()}
+    # 2- and 3-word phrases are taken over the whole page in order, so "ICS <b>31</b>"
+    # still gives the phrase "ic 31" even though it is two text nodes.
+    ngram_counts: dict[str, int] = {}
+    for n in NGRAM_SIZES:
+        for phrase in ngrams(page_tokens, n):
+            ngram_counts[phrase] = ngram_counts.get(phrase, 0) + 1
+
+    # Two pages with exactly the same words in the same order get the same hash.
+    fingerprint = hashlib.sha256(" ".join(page_tokens).encode("utf-8")).hexdigest()
+
+    return ParsedPage(
+        counts={term: tuple(entry) for term, entry in counts.items()},
+        ngram_counts=ngram_counts,
+        links=_extract_links(soup, page_url),
+        fingerprint=fingerprint,
+    )
+
+
+# Return (target URL, anchor text tokens) for every <a href> that has some words.
+# The target URL is made absolute and its #fragment removed so it can be matched
+# against the indexed URLs. A link whose href cannot be parsed is skipped.
+def _extract_links(soup, page_url: str) -> list[tuple[str, list[str]]]:
+    links = []
+    for anchor in soup.find_all("a", href=True):
+        words = tokenize(anchor.get_text(" "))
+        if not words:
+            continue
+        try:
+            target = defragment(urljoin(page_url, anchor["href"]))
+        except ValueError:
+            continue
+        links.append((target, words))
+    return links

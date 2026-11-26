@@ -3,7 +3,7 @@ ICS Search Engine - Assignment 3
 
 Track:          Information Analyst
 Group members:  Eric Estrada 87128480
-Course:         Fall 2026
+
 
 
 WHAT IS IN THIS ZIP
@@ -18,41 +18,47 @@ WHAT IS IN THIS ZIP
   app.py            the same search as a local web page (Flask)
   evaluate.py       runs every test query in queries.txt and logs the top 5 results
   queries.txt       the test queries (see TEST.txt for the explanation)
-  report.py         writes the Milestone 1 analytics report (optional)
   requirements.txt  Python packages needed
+  tests/            automated tests for every part (see step 6)
+  pytest.ini        settings for the tests
 
 
 1. SETUP
 --------
 
-Needs Python 3.9 or newer. From the project folder, install the packages:
+Needs Python 3.10 or newer. From the project folder, install the packages:
 
     pip install -r requirements.txt
 
-Put the dataset in the project folder so that the page folders are inside
-analyst/ANALYST/ (unzip analyst.zip here). The layout should look like:
+Unzip analyst.zip into the project folder. It contains one folder, ANALYST,
+with one folder per domain inside it:
 
-    analyst/ANALYST/<domain folder>/<page>.json
-
-If the dataset is somewhere else, pass its path to indexer.py (see step 2).
+    ANALYST/<domain folder>/<page>.json
 
 
 2. BUILD THE INDEX
 ------------------
 
-    python indexer.py
+    python indexer.py ANALYST
 
-This reads every JSON page under analyst/ANALYST and writes the index to the
-folder "output". It takes about a minute. To use other folders:
+This reads every JSON page under the ANALYST folder and writes the index to
+the folder "output". It takes about a minute. If the dataset is somewhere
+else, give its path instead of ANALYST. To also choose the output folder:
 
     python indexer.py <dataset_folder> <output_folder>
+
+(With no arguments, the dataset folder defaults to analyst/ANALYST.)
 
 It prints "Indexed N of M files" when done. Files written to the output folder:
 
     index.json     the inverted index: term -> list of postings
-                   {doc_id, tf, title_tf, heading_tf, bold_tf}
+                   {doc_id, tf, title_tf, heading_tf, bold_tf, anchor_tf}
     doc_ids.json   doc ID -> URL
-    skipped.json   files that were not indexed and why (duplicate URL, no text)
+    ngrams.json    2- and 3-word phrases: "word1 word2" or "word1 word2 word3"
+                   -> list of {doc_id, tf}
+    pagerank.json  doc ID -> PageRank (how well linked the page is; sums to 1)
+    skipped.json   files that were not indexed and why (duplicate URL,
+                   duplicate content, no text)
 
 The index is not included in this zip. Running this step recreates it.
 
@@ -100,3 +106,15 @@ query words are ranked first, then by score.
 
 Runs all queries in queries.txt and writes the top 5 results and the time of
 each query to eval_log.txt.
+
+
+6. RUN THE AUTOMATED TESTS (OPTIONAL)
+-------------------------------------
+
+    python -m pytest
+
+Runs the tests in tests/. They build small indexes from made-up pages, so
+most of them do not need the dataset. The tests in tests/test_real_index.py
+check the real index in "output" against the dataset in analyst/ANALYST, and
+are skipped if either is missing. To point them at another dataset folder,
+set the A3_DATASET_DIR environment variable to its path first.
