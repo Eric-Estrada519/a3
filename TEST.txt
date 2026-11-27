@@ -32,7 +32,7 @@ still the right page. There are small side effects lower in the top 5:
   - running: three news listing pages (/news/, /2019/10/ and the footer news
     page) are at #3-#5. The top two results are still the right ones.
   - cristina lopes: the monthly archive /2017/10/ is at #5.
-  - mswe: the monthly archive /2019/09/ is at #5.
+  - mswe: the news listing page (/very-top-footer-menu-items/news/) is at #5.
 Listing and archive pages hold many short news stories, so they still reach
 the bottom of the top 5 for some queries even after change 2.
 
@@ -249,14 +249,63 @@ CHANGE 8: Three-word phrases (3-grams)
   startup takes about 3 s instead of 1.5 s. The slowest query still takes
   under 5 ms.
 
+CHANGE 9: PageRank
+
+  The indexer runs PageRank (damping factor 0.85) over the links between the
+  indexed pages and saves the result in pagerank.json. Each link from one page
+  to another counts once, and links from a page to itself are ignored (these
+  are the same links used for the anchor text in change 6). At search time,
+  each page's score is multiplied by
+
+      1 + 0.3 * log(1 + rank * N) / log(1 + top_rank * N)
+
+  where N is the number of pages and top_rank is the highest PageRank. The
+  best-linked page gets at most a 30% boost. If pagerank.json is missing, the
+  search still works, with no boost.
+
+  Why: problem (c). Words that are on almost every page (faculty, research,
+  about, undergraduate) have scores near 0, so the page that everyone links to
+  (usually the menu page for that topic) did not stand out from the rest.
+  Because the boost multiplies the score instead of adding to it, it breaks
+  near-ties but cannot lift a weak match above a much better one.
+
+  Tuning: weights from 0.1 to 0.5 were tried. 0.3 is the lowest weight that
+  brings the menu pages that were checked (cs/faculty/,
+  cs/about-the-department/, BS Computer Game Science) into the top 3. From 0.4
+  up, menu pages (housing, student groups, contact) show up in unrelated
+  queries such as "the university of california irvine".
+
+  Helped:
+    - faculty: the CS faculty page moved from #4 to #2.
+    - game design: the BS in Computer Game Science page moved from #8 to #2.
+    - how to apply: the graduate application page moved from #4 to #3.
+    - graduate admissions: the CS graduate programs page entered the top 5
+      at #5.
+    - Extra queries tried during testing: "about" (the CS About the
+      Department page went from #7 to #1) and "research" (the CS research
+      centers page went from #2 to #1).
+  Hurt:
+    - human computer interaction: the course list moved from #6 to #4.
+    - phd program: #4 and #5 are now the graduate policies and diversity
+      ambassador pages instead of PhD student stories.
+    - A few news stories that were in the CS "recent news" sidebar when the
+      site was crawled are linked from many pages, so they have a high
+      PageRank and move up a place or two.
+  Unchanged: 24 of the 25 test queries keep the same #1 result ("machine
+  learning" swaps its #1 and #2, both on topic), and 13 keep exactly the same
+  top 5.
+  Cost: computing PageRank over the 88,970 links adds 0.5 s to the index
+  build. The boost adds about 0.02 ms per query; the slowest test query takes
+  about 4 to 6 ms.
+
 
 PART 4 - CURRENT STATUS OF THE BAD QUERIES
 ------------------------------------------
 
   Fixed:
-    machine learning, privacy, contact us, game design,
+    machine learning, privacy, contact us, game design (changes 1 and 9),
     human computer interaction, phd program (change 4),
-    faculty (change 6), how to apply (changes 5 and 8)
+    faculty (changes 6 and 9), how to apply (changes 5, 8 and 9)
 
   Mostly fixed:
     computer science, the university of california irvine,
@@ -276,7 +325,7 @@ PART 4 - CURRENT STATUS OF THE BAD QUERIES
       application page has "how to" and "to apply" side by side, and pages
       with those pairs get the bonus. Change 8 (3-grams) then pushed out the
       "Applied Innovation" article and moved the graduate application page
-      into the top 5.
+      into the top 5, and change 9 (PageRank) moved it up to #3.
     - ics 31: needed word order. Mostly fixed by change 5 (see above).
     - graduate admissions: both words are on almost every page (site menu), so
       their idf is near 0. Change 5 alone made it worse (menu pages won);
